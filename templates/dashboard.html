@@ -1,0 +1,342 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Smart Life Reminder{% endblock %}
+
+{% block content %}
+<nav class="navbar">
+    <div class="navbar-content">
+        <h1 class="navbar-title">⏰ Smart Life Reminder</h1>
+        <div class="navbar-user">
+            <span>Welcome, {{ session.user_name }}!</span>
+            <a href="{{ url_for('logout') }}" class="btn btn-secondary">Logout</a>
+        </div>
+    </div>
+</nav>
+
+<main class="dashboard">
+    <div class="dashboard-header">
+        <h2>📋 Your Tasks</h2>
+        <button id="addTaskBtn" class="btn btn-primary">+ Add New Task</button>
+    </div>
+    
+    <!-- Daily Check-In Popup (shows at fixed time) -->
+    <div id="dailyCheckInPopup" class="popup hidden">
+        <div class="popup-content">
+            <span class="popup-close">&times;</span>
+            <h3>👋 Heyy! Do you have anything important to add today?</h3>
+            <p>This is your daily reminder to add any upcoming tasks.</p>
+            <div class="popup-actions">
+                <button class="btn btn-primary" id="checkInYesBtn">Yes, Add Task</button>
+                <button class="btn btn-secondary" id="checkInNoBtn">Not Now</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Add Task Modal -->
+    <div id="addTaskModal" class="modal hidden">
+        <div class="modal-content">
+            <span class="modal-close">&times;</span>
+            <h3>Add New Task</h3>
+            
+            <form id="addTaskForm" class="form">
+                <div class="form-group">
+                    <label for="taskTitle">Task Name *</label>
+                    <input type="text" id="taskTitle" required placeholder="e.g., Electricity bill payment">
+                </div>
+                
+                <div class="form-group">
+                    <label for="taskDueDate">Due Date *</label>
+                    <input type="date" id="taskDueDate" required>
+                </div>
+                
+                <div class="form-group">
+                    <label>Remind me on these dates *</label>
+                    <div class="reminder-checkboxes">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="reminder" value="daily"> ✨ Daily until deadline
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="reminder" value="1"> 1 day before
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="reminder" value="3"> 3 days before
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="reminder" value="7" checked> 7 days before
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="reminder" value="14"> 14 days before
+                        </label>
+                    </div>
+                    <p style="font-size: 12px; color: #666; margin-top: 8px;">Choose when you want to be reminded</p>
+                </div>
+                
+                <div class="form-group">
+                    <label for="customReminderDays">📅 Or add custom reminder day</label>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <input type="number" id="customReminderDays" min="1" max="365" placeholder="e.g., 5, 10, 21" style="flex: 1;">
+                        <button type="button" id="addCustomDayBtn" class="btn btn-secondary" style="padding: 8px 12px; font-size: 12px;">Add</button>
+                    </div>
+                    <div id="customDaysDisplay" style="margin-top: 8px; font-size: 12px; color: #666;"></div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="taskPriority">Priority</label>
+                    <select id="taskPriority">
+                        <option value="low">Low</option>
+                        <option value="medium" selected>Medium</option>
+                        <option value="high">High</option>
+                    </select>
+                </div>
+                
+                <button type="submit" class="btn btn-primary btn-block">Add Task</button>
+            </form>
+        </div>
+    </div>
+    
+    <!-- Tasks List -->
+    <div class="tasks-container">
+        <div id="tasksList" class="tasks-list">
+            <p class="loading">Loading tasks...</p>
+        </div>
+    </div>
+</main>
+
+<script>
+// Load tasks on page load
+document.addEventListener('DOMContentLoaded', () => {
+    loadTasks();
+    setupCustomReminderDays();
+    setupEventListeners();
+    scheduleDailyCheckIn();
+});
+
+// Handle custom reminder days
+function setupCustomReminderDays() {
+    const customDaysInput = document.getElementById('customReminderDays');
+    const addBtn = document.getElementById('addCustomDayBtn');
+    const display = document.getElementById('customDaysDisplay');
+    const customDays = [];
+    
+    function updateDisplay() {
+        if (customDays.length > 0) {
+            display.textContent = '✓ Custom days added: ' + customDays.join(', ');
+        } else {
+            display.textContent = '';
+        }
+    }
+    
+    addBtn.addEventListener('click', () => {
+        const value = parseInt(customDaysInput.value);
+        if (isNaN(value) || value < 1 || value > 365) {
+            alert('Please enter a number between 1 and 365');
+            return;
+        }
+        if (customDays.includes(value)) {
+            alert('This day is already added');
+            return;
+        }
+        customDays.push(value);
+        customDays.sort((a, b) => a - b);
+        customDaysInput.value = '';
+        updateDisplay();
+    });
+    
+    customDaysInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            addBtn.click();
+        }
+    });
+    
+    // Store custom days globally for form submission
+    window.customReminderDays = customDays;
+}
+
+// Setup all event listeners
+function setupEventListeners() {
+    // Add task button
+    document.getElementById('addTaskBtn').addEventListener('click', () => {
+        document.getElementById('addTaskModal').classList.remove('hidden');
+    });
+    
+    // Close modals
+    document.querySelectorAll('.modal-close, .popup-close').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.target.closest('.modal, .popup').classList.add('hidden');
+        });
+    });
+    
+    // Add task form
+    document.getElementById('addTaskForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const title = document.getElementById('taskTitle').value;
+        const due_date = document.getElementById('taskDueDate').value;
+        const priority = document.getElementById('taskPriority').value;
+        
+        // Get all checked reminder values
+        const reminderCheckboxes = document.querySelectorAll('input[name="reminder"]:checked');
+        let reminder_days = Array.from(reminderCheckboxes).map(cb => cb.value).join(',');
+        
+        // Add custom reminder days if any
+        if (window.customReminderDays && window.customReminderDays.length > 0) {
+            const customDaysStr = window.customReminderDays.join(',');
+            reminder_days = reminder_days ? reminder_days + ',' + customDaysStr : customDaysStr;
+        }
+        
+        if (!reminder_days) {
+            alert('Please select at least one reminder date');
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api/tasks', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ title, due_date, reminder_days, priority })
+            });
+            const data = await response.json();
+            if (data.success) {
+                document.getElementById('addTaskModal').classList.add('hidden');
+                document.getElementById('addTaskForm').reset();
+                // Clear custom reminder days
+                window.customReminderDays = [];
+                document.getElementById('customDaysDisplay').textContent = '';
+                // Reload tasks
+                setTimeout(() => { loadTasks(); }, 500);
+            } else {
+                alert('Error: ' + data.message);
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('An error occurred. Please try again.');
+        }
+    });
+    
+    // Daily check-in popup buttons
+    document.getElementById('checkInYesBtn').addEventListener('click', () => {
+        document.getElementById('dailyCheckInPopup').classList.add('hidden');
+        document.getElementById('addTaskModal').classList.remove('hidden');
+    });
+    
+    document.getElementById('checkInNoBtn').addEventListener('click', () => {
+        document.getElementById('dailyCheckInPopup').classList.add('hidden');
+    });
+}
+
+// Load and display tasks
+async function loadTasks() {
+    try {
+        const response = await fetch('/api/tasks');
+        const data = await response.json();
+        if (data.success) {
+            displayTasks(data.tasks);
+        }
+    } catch (error) {
+        console.error('Error loading tasks:', error);
+    }
+}
+
+function displayTasks(tasks) {
+    const tasksList = document.getElementById('tasksList');
+    if (tasks.length === 0) {
+        tasksList.innerHTML = '<p class="empty">No tasks yet. Add one to get started!</p>';
+        return;
+    }
+    
+    tasksList.innerHTML = tasks.map(task => {
+        const isCompleted = task.status === 'completed';
+        const daysUntilDue = Math.ceil((new Date(task.due_date) - new Date()) / (1000 * 60 * 60 * 24));
+        let urgencyClass = 'low';
+        if (daysUntilDue <= 1) urgencyClass = 'critical';
+        else if (daysUntilDue <= 7) urgencyClass = 'high';
+        else if (daysUntilDue <= 14) urgencyClass = 'medium';
+        
+        return `
+            <div class="task-card urgency-${urgencyClass}">
+                <div class="task-header">
+                    <h4>${task.title}</h4>
+                    <span class="priority-badge ${task.priority}">${task.priority.toUpperCase()}</span>
+                </div>
+                <p class="task-info">📅 Due: ${formatDate(task.due_date)} (${daysUntilDue} days)</p>
+                <p class="task-info">🔔 Reminders: ${task.reminder_days}</p>
+                <div class="task-actions">
+                    <button class="btn btn-small ${isCompleted ? 'completed' : ''}" onclick="toggleTask(${task.id})">
+                        ${isCompleted ? '✓ Completed' : 'Mark Done'}
+                    </button>
+                    <button class="btn btn-small btn-danger" onclick="deleteTask(${task.id})">Delete</button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function formatDate(dateStr) {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+async function toggleTask(taskId) {
+    try {
+        const response = await fetch(`/api/tasks/${taskId}`, { method: 'PATCH' });
+        const data = await response.json();
+        if (data.success) {
+            loadTasks();
+        }
+    } catch (error) {
+        alert('Error updating task');
+    }
+}
+
+async function deleteTask(taskId) {
+    if (confirm('Are you sure you want to delete this task?')) {
+        try {
+            const response = await fetch(`/api/tasks/${taskId}`, { method: 'DELETE' });
+            const data = await response.json();
+            if (data.success) {
+                loadTasks();
+            }
+        } catch (error) {
+            alert('Error deleting task');
+        }
+    }
+}
+
+// Send daily check-in notification via modal popup
+function sendDailyCheckInNotification(timeOfDay) {
+    const popup = document.getElementById('dailyCheckInPopup');
+    if (popup) {
+        popup.classList.remove('hidden');
+    }
+}
+
+// Schedule daily check-in notifications for morning (9 AM) and night (9 PM)
+function scheduleDailyCheckIn() {
+    function checkAndSendNotification() {
+        const now = new Date();
+        const currentHour = now.getHours();
+        const currentMinute = now.getMinutes();
+        const today = now.toDateString();
+        
+        const MORNING_TIME = '09:00';
+        const NIGHT_TIME = '21:00';
+        
+        const [morningHour, morningMin] = MORNING_TIME.split(':').map(Number);
+        const [nightHour, nightMin] = NIGHT_TIME.split(':').map(Number);
+        
+        const lastMorningShown = localStorage.getItem('lastMorningCheckIn');
+        const lastNightShown = localStorage.getItem('lastNightCheckIn');
+        
+        if (currentHour === morningHour && currentMinute >= morningMin && currentMinute <= morningMin + 4 && lastMorningShown !== today) {
+            sendDailyCheckInNotification('morning');
+            localStorage.setItem('lastMorningCheckIn', today);
+        } else if (currentHour === nightHour && currentMinute >= nightMin && currentMinute <= nightMin + 4 && lastNightShown !== today) {
+            sendDailyCheckInNotification('night');
+            localStorage.setItem('lastNightCheckIn', today);
+        }
+    }
+    
+    checkAndSendNotification();
+    setInterval(checkAndSendNotification, 60000);
+}
+</script>
+{% endblock %}

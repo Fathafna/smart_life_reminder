@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% block title %}Register - Smart Life Reminder{% endblock %}
+
+{% block content %}
+<div class="auth-container">
+    <div class="auth-card">
+        <h1>📝 Create Account</h1>
+        <p class="subtitle">Join Smart Life Reminder</p>
+        
+        <form id="registerForm" class="form">
+            <div class="form-group">
+                <label for="name">Full Name</label>
+                <input type="text" id="name" name="name" required placeholder="Your name">
+            </div>
+            
+            <div class="form-group">
+                <label for="email">Email Address</label>
+                <input type="email" id="email" name="email" required placeholder="your@email.com">
+            </div>
+            
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required placeholder="Create a strong password">
+            </div>
+            
+            <button type="submit" class="btn btn-primary btn-block">Register</button>
+        </form>
+        
+        <p class="form-footer">
+            Already have an account? <a href="{{ url_for('login') }}">Login here</a>
+        </p>
+        
+        <div id="message" class="message"></div>
+    </div>
+</div>
+
+<script>
+document.getElementById('registerForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const name = document.getElementById('name').value;
+    const email = document.getElementById('email').value;
+    const password = document.getElementById('password').value;
+    const messageDiv = document.getElementById('message');
+    
+    try {
+        const response = await fetch('/register', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ name, email, password })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            messageDiv.className = 'message message-success';
+            messageDiv.textContent = data.message;
+            setTimeout(() => {
+                window.location.href = '/login';
+            }, 2000);
+        } else {
+            messageDiv.className = 'message message-error';
+            messageDiv.textContent = data.message;
+        }
+    } catch (error) {
+        messageDiv.className = 'message message-error';
+        messageDiv.textContent = 'An error occurred. Please try again.';
+    }
+});
+</script>
+{% endblock %}
